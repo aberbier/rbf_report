@@ -13,53 +13,62 @@ class TestCaseKeywordVisitor(ResultVisitor):
         self.current_parent_suite = None
 
     def visit_suite(self, suite):
-        # Only process top-level and second level suites here
-        if suite.parent:
-            if not suite.parent.parent:  # This is a second-level suite (child of top-level)
-                suite_info = {
-                    'id': suite.id,
-                    'name': suite.name,
-                    'source': suite.source,
-                    'status': suite.status,
-                    'tests': [],
-                    'parent': suite.parent.name,
-                    'setup': None,
-                    'teardown': None
-                }
+        # Process all suites
+        suite_info = {
+            'id': suite.id,
+            'name': suite.name,
+            'source': suite.source,
+            'status': suite.status,
+            'tests': [],
+            'parent': suite.parent.name if suite.parent else None,
+            'setup': None,
+            'teardown': None
+        }
 
-                # Check for suite setup
-                if hasattr(suite, 'setup') and suite.setup is not None:
-                    suite_info['setup'] = self._process_suite_keyword(suite.setup, 'SUITE SETUP')
+        # Check for suite setup - only add if it has keywords
+        if hasattr(suite, 'setup') and suite.setup is not None and suite.setup.name != 'None' and hasattr(suite.setup, 'body') and len(suite.setup.body) > 0:
+            suite_info['setup'] = self._process_suite_keyword(suite.setup)
 
-                # Check for suite teardown
-                if hasattr(suite, 'teardown') and suite.teardown is not None:
-                    suite_info['teardown'] = self._process_suite_keyword(suite.teardown, 'SUITE TEARDOWN')
+        # Check for suite teardown - only add if it has keywords
+        if hasattr(suite, 'teardown') and suite.teardown is not None and suite.teardown.name != 'None' and hasattr(suite.teardown, 'body') and len(suite.teardown.body) > 0:
+            suite_info['teardown'] = self._process_suite_keyword(suite.teardown)
 
-                self.current_suite = suite_info
-                self.suite_data.append(suite_info)
-        else:  # Top level suite
-            self.current_parent_suite = suite.name
+        self.current_suite = suite_info
+        self.suite_data.append(suite_info)
 
         # Continue visiting test cases and child suites
         suite.tests.visit(self)
         suite.suites.visit(self)
 
-    def _process_suite_keyword(self, keyword, keyword_type):
-        """Process a suite setup or teardown keyword"""
+    def _process_suite_keyword(self, keyword):
+        """Process a suite-level keyword."""
         if keyword is None:
             return None
 
+        # Get the keyword name safely
+        keyword_name = str(keyword)
+        if '.' in keyword_name:
+            keyword_name = keyword_name.split('.')[-1]
+
         kw_info = {
-            'name': keyword.name,
+            'name': keyword_name,
             'status': keyword.status,
-            'type': keyword_type,
+            'type': getattr(keyword, 'type', ''),
             'children': []
         }
 
-        # Process child keywords if any
+        # Skip control structures and iterations but process their body
+        if kw_info['type'] in ['IF', 'WHILE', 'FOR', 'IFBRANCH', 'ELSE', 'ELSEIF', 'FORITERATION', 'ITERATION'] or str(keyword).startswith('${'):
+            if hasattr(keyword, 'body'):
+                for child_item in keyword.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, kw_info['children'], 0)
+            return None
+
+        # Process child keywords
         if hasattr(keyword, 'body'):
             for child_item in keyword.body:
-                if hasattr(child_item, 'name'):
+                if hasattr(child_item, 'body'):  # It's a keyword
                     self._process_keyword(child_item, kw_info['children'], 0)
 
         return kw_info
@@ -75,10 +84,10 @@ class TestCaseKeywordVisitor(ResultVisitor):
                 'teardown': None
             }
 
-            # Check for test setup
-            if hasattr(test, 'setup') and test.setup is not None:
+            # Check for test setup - only add if it has keywords
+            if hasattr(test, 'setup') and test.setup is not None and test.setup.name != 'None' and hasattr(test.setup, 'body') and len(test.setup.body) > 0:
                 setup_info = {
-                    'name': test.setup.name,
+                    'name': str(test.setup),
                     'status': test.setup.status,
                     'type': 'TEST SETUP',
                     'level': 0,
@@ -86,24 +95,21 @@ class TestCaseKeywordVisitor(ResultVisitor):
                 }
 
                 # Process child keywords in setup if any
-                if hasattr(test.setup, 'body'):
-                    for child_item in test.setup.body:
-                        if hasattr(child_item, 'name'):
-                            self._process_keyword(child_item, setup_info['children'], 1)
+                for child_item in test.setup.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, setup_info['children'], 1)
 
                 test_info['setup'] = setup_info
 
             # Process all body items in this test
-            # In Robot Framework 7.x, 'keywords' was renamed to 'body'
             for item in test.body:
-                # Check if this is a keyword
-                if hasattr(item, 'name'):
+                if hasattr(item, 'body'):  # It's a keyword
                     self._process_keyword(item, test_info['keywords'], 0)
 
-            # Check for test teardown
-            if hasattr(test, 'teardown') and test.teardown is not None:
+            # Check for test teardown - only add if it has keywords
+            if hasattr(test, 'teardown') and test.teardown is not None and test.teardown.name != 'None' and hasattr(test.teardown, 'body') and len(test.teardown.body) > 0:
                 teardown_info = {
-                    'name': test.teardown.name,
+                    'name': str(test.teardown),
                     'status': test.teardown.status,
                     'type': 'TEST TEARDOWN',
                     'level': 0,
@@ -111,10 +117,9 @@ class TestCaseKeywordVisitor(ResultVisitor):
                 }
 
                 # Process child keywords in teardown if any
-                if hasattr(test.teardown, 'body'):
-                    for child_item in test.teardown.body:
-                        if hasattr(child_item, 'name'):
-                            self._process_keyword(child_item, teardown_info['children'], 1)
+                for child_item in test.teardown.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, teardown_info['children'], 1)
 
                 test_info['teardown'] = teardown_info
 
@@ -122,402 +127,150 @@ class TestCaseKeywordVisitor(ResultVisitor):
 
     def _process_keyword(self, keyword, keywords_list, level):
         """Process a keyword and its children recursively"""
+        # Skip control structures and iterations but process their body
+        if (hasattr(keyword, 'type') and
+            keyword.type in ['IF', 'WHILE', 'FOR', 'IFBRANCH', 'ELSE', 'ELSEIF', 'FORITERATION', 'ITERATION', 'IF/ELSE ROOT']):
+            if hasattr(keyword, 'body'):
+                for child_item in keyword.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, keywords_list, level)
+            return
+
+        # Skip iter tags but process their body
+        if str(keyword).startswith('${') or hasattr(keyword, 'type') and keyword.type == 'ITERATION':
+            if hasattr(keyword, 'body'):
+                for child_item in keyword.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, keywords_list, level)
+            return
+
+        # Get the keyword name safely
+        keyword_name = str(keyword)
+        if '.' in keyword_name:
+            keyword_name = keyword_name.split('.')[-1]
+
+        # Skip IF/ELSE structures and their branches even if they don't have a type attribute
+        if (keyword_name.startswith('IF') or
+            keyword_name.startswith('ELSE') or
+            keyword_name.startswith('ELSE IF') or
+            keyword_name.startswith('IFBRANCH') or
+            keyword_name.startswith('IF ROOT') or
+            keyword_name.startswith('ELSE ROOT') or
+            'IF/ELSE ROOT' in keyword_name or
+            'ROOT' in keyword_name and ('IF' in keyword_name or 'ELSE' in keyword_name)):
+            if hasattr(keyword, 'body'):
+                for child_item in keyword.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, keywords_list, level)
+            return
+
+        # Skip any keyword that contains "IF" or "ELSE" in its name
+        if ('IF' in keyword_name or 'ELSE' in keyword_name or
+            (hasattr(keyword, 'libname') and ('IF' in str(keyword.libname) or 'ELSE' in str(keyword.libname)))):
+            if hasattr(keyword, 'body'):
+                for child_item in keyword.body:
+                    if hasattr(child_item, 'body'):  # It's a keyword
+                        self._process_keyword(child_item, keywords_list, level)
+            return
+
+        # Get arguments and return values
+        args = []
+        if hasattr(keyword, 'args'):
+            args = [str(arg) for arg in keyword.args]
+
+        returns = []
+        if hasattr(keyword, 'assign'):
+            returns = [str(assign) for assign in keyword.assign]
+
+        # Get variable values
+        variables = {}
+        if hasattr(keyword, 'body'):
+            for item in keyword.body:
+                if hasattr(item, 'type') and item.type == 'VARIABLE':
+                    var_name = str(item.name)
+                    var_value = str(item.value) if hasattr(item, 'value') else ''
+                    variables[var_name] = var_value
+
         kw_info = {
-            'name': keyword.name,
+            'name': keyword_name,
             'status': keyword.status,
             'type': getattr(keyword, 'type', ''),
             'level': level,
+            'args': args,
+            'returns': returns,
+            'variables': variables,
             'children': []
         }
 
         # Process child keywords recursively
-        # In Robot Framework 7.x, child keywords are in 'body'
         if hasattr(keyword, 'body'):
             for child_item in keyword.body:
-                # Check if this is a keyword
-                if hasattr(child_item, 'name'):
+                if hasattr(child_item, 'body'):  # It's a keyword
                     self._process_keyword(child_item, kw_info['children'], level + 1)
 
         keywords_list.append(kw_info)
 
+    def _format_keyword_children(self, keyword):
+        """Format keyword children for display"""
+        if not keyword['children']:
+            return ''
+
+        children_html = '<ul class="keyword-children">'
+        for child in keyword['children']:
+            children_html += '<li>'
+
+            # Add argument information
+            if child.get('args'):
+                args_text = ', '.join(child['args'])
+                children_html += f'<span class="keyword-args">Arguments: [{args_text}]</span><br>'
+
+            # Add return information
+            if child.get('returns'):
+                returns_text = ', '.join(child['returns'])
+                children_html += f'<span class="keyword-returns">Returns: [{returns_text}]</span><br>'
+
+            # Add variable information
+            if child.get('variables'):
+                for var_name, var_value in child['variables'].items():
+                    children_html += f'<span class="keyword-variable">{var_name} = {var_value}</span><br>'
+
+            # Add the keyword name and status
+            children_html += f'<span class="keyword-name">{child["name"]}</span>'
+            if child.get('type'):
+                children_html += f' <span class="keyword-type">({child["type"]})</span>'
+            children_html += f' <span class="keyword-status {child["status"].lower()}">{child["status"]}</span>'
+
+            # Add duration if available
+            if child.get('duration'):
+                children_html += f' <span class="keyword-duration">({child["duration"]})</span>'
+
+            # Recursively process children
+            children_html += self._format_keyword_children(child)
+            children_html += '</li>'
+
+        children_html += '</ul>'
+        return children_html
+
 def generate_html_report(output_xml, html_output="interactive_report.html"):
     # Parse the output.xml using Robot Framework's API
     result = ExecutionResult(output_xml)
-
-    # Create and use the visitor
     visitor = TestCaseKeywordVisitor()
     result.visit(visitor)
 
-    # Calculate statistics
-    suite_count = len(visitor.suite_data)
-    test_count = sum(len(suite['tests']) for suite in visitor.suite_data)
-    keyword_count = sum(sum(len(test['keywords']) for test in suite['tests']) for suite in visitor.suite_data)
+    # Get statistics - only count suites that have tests
+    actual_suites = [suite for suite in visitor.suite_data if suite['tests']]
+    suite_count = len(actual_suites)
+    test_count = sum(len(suite['tests']) for suite in actual_suites)
+    keyword_count = sum(len(test['keywords']) for suite in actual_suites for test in suite['tests'])
 
-    # Create HTML content with Apple-like design, focused on test cases organized by suite
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Robot Framework Test Suite Overview</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        /* Apple-like design system */
-        :root {{
-            --background: #ffffff;
-            --surface: #f5f5f7;
-            --primary: #0071e3;
-            --accent: #5e5ce6;
-            --success: #34c759;
-            --error: #ff3b30;
-            --warning: #ff9500;
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --border: #d2d2d7;
-            --shadow: rgba(0, 0, 0, 0.1);
-        }}
+    # Start generating HTML content
+    html_content = _get_html_header()
 
-        @media (prefers-color-scheme: dark) {{
-            :root {{
-                --background: #1d1d1f;
-                --surface: #2c2c2e;
-                --primary: #0a84ff;
-                --accent: #5e5ce6;
-                --success: #30d158;
-                --error: #ff453a;
-                --warning: #ff9f0a;
-                --text-primary: #f5f5f7;
-                --text-secondary: #98989d;
-                --border: #444;
-                --shadow: rgba(0, 0, 0, 0.3);
-            }}
-        }}
-
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif;
-            background-color: var(--background);
-            color: var(--text-primary);
-            line-height: 1.5;
-            margin: 0;
-            padding: 0;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }}
-
-        .container {{
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-
-        header {{
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-
-        h1 {{
-            font-weight: 500;
-            font-size: 32px;
-            letter-spacing: -0.5px;
-            color: var(--text-primary);
-        }}
-
-        .intro {{
-            margin-bottom: 30px;
-            color: var(--text-secondary);
-            font-size: 16px;
-            line-height: 1.6;
-        }}
-
-        .test-summary {{
-            display: flex;
-            gap: 16px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-        }}
-
-        .summary-card {{
-            flex: 1;
-            min-width: 180px;
-            background-color: var(--surface);
-            padding: 24px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px var(--shadow);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            transition: transform 0.2s ease;
-        }}
-
-        .summary-card:hover {{
-            transform: translateY(-4px);
-        }}
-
-        .summary-value {{
-            font-size: 36px;
-            font-weight: 500;
-            margin-bottom: 8px;
-            color: var(--primary);
-        }}
-
-        .summary-label {{
-            font-size: 14px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-
-        .test-suite {{
-            margin-bottom: 40px;
-        }}
-
-        .suite-header {{
-            cursor: pointer;
-            background-color: var(--surface);
-            padding: 20px 24px;
-            margin: 12px 0;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px var(--shadow);
-            transition: all 0.2s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-left: 4px solid var(--accent);
-        }}
-
-        .suite-header:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px var(--shadow);
-        }}
-
-        .suite-name {{
-            font-weight: 600;
-            font-size: 18px;
-            flex: 1;
-        }}
-
-        .suite-meta {{
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }}
-
-        .suite-tests {{
-            display: none;
-            margin: 8px 0 24px 24px;
-            opacity: 0;
-            max-height: 0;
-            transition: opacity 0.3s ease, max-height 0.3s ease;
-        }}
-
-        .suite-tests.visible {{
-            display: block;
-            opacity: 1;
-            max-height: 5000px;
-        }}
-
-        .suite-setup {{
-            background-color: var(--surface);
-            padding: 16px 24px;
-            margin: 12px 0;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px var(--shadow);
-            border-left: 4px solid var(--success);
-            cursor: pointer;
-        }}
-
-        .suite-teardown {{
-            background-color: var(--surface);
-            padding: 16px 24px;
-            margin: 12px 0;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px var(--shadow);
-            border-left: 4px solid var(--warning);
-            cursor: pointer;
-        }}
-
-        .test-case {{
-            cursor: pointer;
-            background-color: var(--surface);
-            padding: 16px 24px;
-            margin: 12px 0;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px var(--shadow);
-            transition: all 0.2s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-left: 4px solid var(--primary);
-        }}
-
-        .test-case:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px var(--shadow);
-        }}
-
-        .setup-keyword {{
-            border-left: 4px solid var(--success) !important;
-        }}
-
-        .teardown-keyword {{
-            border-left: 4px solid var(--warning) !important;
-        }}
-
-        .test-name {{
-            font-weight: 500;
-            flex: 1;
-        }}
-
-        .chevron {{
-            color: var(--text-secondary);
-            transition: transform 0.3s ease;
-        }}
-
-        .test-case[aria-expanded="true"] .chevron,
-        .suite-header[aria-expanded="true"] .chevron,
-        .suite-setup[aria-expanded="true"] .chevron,
-        .suite-teardown[aria-expanded="true"] .chevron {{
-            transform: rotate(90deg);
-        }}
-
-        .keywords {{
-            display: none;
-            margin: 8px 0 24px 24px;
-            border-left: 2px solid var(--border);
-            padding-left: 24px;
-            overflow: hidden;
-            opacity: 0;
-            max-height: 0;
-            transition: opacity 0.3s ease, max-height 0.3s ease;
-        }}
-
-        .keywords.visible {{
-            display: block;
-            opacity: 1;
-            max-height: 2000px;
-        }}
-
-        .keyword {{
-            padding: 12px;
-            margin: 8px 0;
-            background-color: var(--surface);
-            border-radius: 8px;
-            box-shadow: 0 1px 4px var(--shadow);
-            position: relative;
-            border-left: 4px solid var(--accent);
-        }}
-
-        .keyword-content {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-
-        .keyword .type-badge {{
-            font-size: 12px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            background-color: var(--border);
-            color: var(--text-secondary);
-            margin-left: 8px;
-        }}
-
-        .child-keywords {{
-            margin-left: 24px;
-            margin-top: 8px;
-        }}
-
-        .section-title {{
-            margin: 40px 0 20px 0;
-            font-size: 24px;
-            font-weight: 500;
-            color: var(--text-primary);
-        }}
-
-        footer {{
-            text-align: center;
-            padding: 24px 0;
-            margin-top: 48px;
-            color: var(--text-secondary);
-            font-size: 14px;
-            border-top: 1px solid var(--border);
-        }}
-    </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {{
-            // Event handlers for test suites
-            const suiteHeaders = document.querySelectorAll('.suite-header');
-
-            suiteHeaders.forEach(suiteHeader => {{
-                suiteHeader.addEventListener('click', function() {{
-                    const suiteId = this.getAttribute('data-target');
-                    const suiteElement = document.getElementById(suiteId);
-                    const isExpanded = this.getAttribute('aria-expanded') === 'true';
-
-                    // Update aria-expanded attribute
-                    this.setAttribute('aria-expanded', !isExpanded);
-
-                    if (suiteElement.classList.contains('visible')) {{
-                        suiteElement.classList.remove('visible');
-                        setTimeout(() => {{
-                            suiteElement.style.display = 'none';
-                        }}, 300);
-                    }} else {{
-                        suiteElement.style.display = 'block';
-                        setTimeout(() => {{
-                            suiteElement.classList.add('visible');
-                        }}, 10);
-                    }}
-                }});
-            }});
-
-            // Event handlers for test cases and setup/teardown elements
-            const expandableElements = document.querySelectorAll('.test-case, .suite-setup, .suite-teardown');
-
-            expandableElements.forEach(element => {{
-                element.addEventListener('click', function() {{
-                    const targetId = this.getAttribute('data-target');
-                    const targetElement = document.getElementById(targetId);
-                    const isExpanded = this.getAttribute('aria-expanded') === 'true';
-
-                    // Update aria-expanded attribute
-                    this.setAttribute('aria-expanded', !isExpanded);
-
-                    if (targetElement.classList.contains('visible')) {{
-                        targetElement.classList.remove('visible');
-                        setTimeout(() => {{
-                            targetElement.style.display = 'none';
-                        }}, 300);
-                    }} else {{
-                        targetElement.style.display = 'block';
-                        setTimeout(() => {{
-                            targetElement.classList.add('visible');
-                        }}, 10);
-                    }}
-                }});
-            }});
-        }});
-    </script>
-</head>
-<body>
+    # Add summary section
+    html_content += f"""
     <div class="container">
-        <header>
-            <h1>Test Automation Overview</h1>
-        </header>
-
-        <div class="intro">
-            <p>This report shows all automated test cases organized by test suite. Click on each suite to see its test cases, then click on a test case to see the detailed steps.</p>
-        </div>
-
-        <div class="test-summary">
+        <h1 class="main-title">Robot Framework Test Overview</h1>
+        <div class="summary-section">
             <div class="summary-card">
                 <div class="summary-value">{suite_count}</div>
                 <div class="summary-label">Test Suites</div>
@@ -536,7 +289,11 @@ def generate_html_report(output_xml, html_output="interactive_report.html"):
 """
 
     # Add test suites to HTML
-    for i, suite in enumerate(visitor.suite_data):
+    for i, suite in enumerate(actual_suites):
+        # Skip suites with no test cases
+        if not suite['tests']:
+            continue
+
         test_count = len(suite['tests'])
         html_content += f"""
         <div class="test-suite">
@@ -550,8 +307,8 @@ def generate_html_report(output_xml, html_output="interactive_report.html"):
             <div id="suite-{i}" class="suite-tests">
 """
 
-        # Add suite setup if exists
-        if suite['setup']:
+        # Add suite setup if exists and is not None
+        if suite.get('setup') and suite['setup'].get('name') != 'None':
             setup_id = f"suite-setup-{i}"
             html_content += f"""
                 <div class="suite-setup" data-target="{setup_id}" aria-expanded="false">
@@ -576,22 +333,22 @@ def generate_html_report(output_xml, html_output="interactive_report.html"):
                 <div id="keywords-{test_id}" class="keywords">
 """
 
-            # Add test setup if exists
-            if test['setup']:
+            # Add test setup if exists and is not None
+            if test.get('setup') and test['setup'].get('name') != 'None':
                 html_content += _render_keyword_special(test['setup'], 'setup-keyword')
 
             # Add regular keywords
             for kw in test['keywords']:
                 html_content += _render_keyword_overview(kw)
 
-            # Add test teardown if exists
-            if test['teardown']:
+            # Add test teardown if exists and is not None
+            if test.get('teardown') and test['teardown'].get('name') != 'None':
                 html_content += _render_keyword_special(test['teardown'], 'teardown-keyword')
 
             html_content += "                </div>\n"
 
-        # Add suite teardown if exists
-        if suite['teardown']:
+        # Add suite teardown if exists and is not None
+        if suite.get('teardown') and suite['teardown'].get('name') != 'None':
             teardown_id = f"suite-teardown-{i}"
             html_content += f"""
                 <div class="suite-teardown" data-target="{teardown_id}" aria-expanded="false">
@@ -684,8 +441,317 @@ def _render_keyword_overview(keyword, level=0):
         html += '                        </div>'
 
     html += "                    </div>\n"
-
     return html
+
+def _get_html_header():
+    """Return the HTML header with styles and scripts."""
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <title>Robot Framework Test Suite Overview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #007AFF;
+            --success-color: #34C759;
+            --warning-color: #FF9500;
+            --error-color: #FF3B30;
+            --text-primary: #1C1C1E;
+            --text-secondary: #3A3A3C;
+            --background-primary: #F2F2F7;
+            --background-secondary: #FFFFFF;
+            --border-color: #E5E5EA;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background-color: var(--background-primary);
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .main-title {
+            color: var(--text-primary);
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            letter-spacing: -0.5px;
+        }
+
+        .summary-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .summary-card {
+            background: var(--background-secondary);
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            transition: transform 0.2s ease;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .summary-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-label {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        .section-title {
+            color: var(--text-primary);
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .test-suite {
+            background: var(--background-secondary);
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+
+        .test-suite:hover {
+            transform: translateY(-2px);
+        }
+
+        .suite-header {
+            padding: 1.25rem;
+            background: var(--background-secondary);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s ease;
+        }
+
+        .suite-header:hover {
+            background-color: var(--background-primary);
+        }
+
+        .suite-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 1.1rem;
+        }
+
+        .suite-meta {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+
+        .suite-tests {
+            display: none;
+            padding: 1.25rem;
+        }
+
+        .suite-tests.visible {
+            display: block;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .test-case {
+            padding: 1rem;
+            margin: 0.5rem 0;
+            background: var(--background-primary);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.2s ease;
+        }
+
+        .test-case:hover {
+            background-color: var(--background-secondary);
+        }
+
+        .test-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .keywords {
+            display: none;
+            padding-left: 1.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .keywords.visible {
+            display: block;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .keyword {
+            margin: 0.5rem 0;
+            padding: 0.75rem;
+            background: var(--background-secondary);
+            border-radius: 8px;
+            border-left: 3px solid var(--border-color);
+            transition: transform 0.2s ease;
+        }
+
+        .keyword:hover {
+            transform: translateX(4px);
+        }
+
+        .keyword-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .type-badge {
+            background: var(--background-primary);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .child-keywords {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .chevron {
+            color: var(--text-secondary);
+            transition: transform 0.3s ease;
+            font-size: 1.2rem;
+        }
+
+        [aria-expanded="true"] .chevron {
+            transform: rotate(90deg);
+        }
+
+        .setup-keyword {
+            border-left-color: var(--success-color);
+        }
+
+        .teardown-keyword {
+            border-left-color: var(--error-color);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            padding: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .main-title {
+                font-size: 2rem;
+            }
+
+            .summary-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Event handlers for test suites
+            const suiteHeaders = document.querySelectorAll('.suite-header');
+
+            suiteHeaders.forEach(suiteHeader => {
+                suiteHeader.addEventListener('click', function() {
+                    const suiteId = this.getAttribute('data-target');
+                    const suiteElement = document.getElementById(suiteId);
+                    const isExpanded = this.getAttribute('aria-expanded') === 'true';
+
+                    this.setAttribute('aria-expanded', !isExpanded);
+
+                    if (suiteElement.classList.contains('visible')) {
+                        suiteElement.classList.remove('visible');
+                        setTimeout(() => {
+                            suiteElement.style.display = 'none';
+                        }, 300);
+                    } else {
+                        suiteElement.style.display = 'block';
+                        setTimeout(() => {
+                            suiteElement.classList.add('visible');
+                        }, 10);
+                    }
+                });
+            });
+
+            // Event handlers for test cases and setup/teardown elements
+            const expandableElements = document.querySelectorAll('.test-case, .suite-setup, .suite-teardown');
+
+            expandableElements.forEach(element => {
+                element.addEventListener('click', function() {
+                    const targetId = this.getAttribute('data-target');
+                    const targetElement = document.getElementById(targetId);
+                    const isExpanded = this.getAttribute('aria-expanded') === 'true';
+
+                    this.setAttribute('aria-expanded', !isExpanded);
+
+                    if (targetElement.classList.contains('visible')) {
+                        targetElement.classList.remove('visible');
+                        setTimeout(() => {
+                            targetElement.style.display = 'none';
+                        }, 300);
+                    } else {
+                        targetElement.style.display = 'block';
+                        setTimeout(() => {
+                            targetElement.classList.add('visible');
+                        }, 10);
+                    }
+                });
+            });
+        });
+    </script>
+</head>
+<body>"""
 
 def main():
     parser = argparse.ArgumentParser(description='Generate interactive HTML report from Robot Framework output.xml')
