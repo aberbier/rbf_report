@@ -3,12 +3,13 @@
 import sys
 from robot.api import ExecutionResult
 
-def extract_keywords(item, html_lines, indent=0):
+def extract_keywords(item, html_lines, indent=0, is_setup=False, is_teardown=False):
     """Extract keywords from an item, handling nested structures."""
     # Skip items marked as NOT RUN
     if hasattr(item, 'status') and item.status == 'NOT RUN':
         return
 
+    # Handle different types of items
     if hasattr(item, 'type'):
         if item.type == 'FOR':
             # Process FOR loop body without showing the FOR structure
@@ -18,7 +19,7 @@ def extract_keywords(item, html_lines, indent=0):
                         continue
                     if hasattr(iteration, 'body'):
                         for nested_item in iteration.body:
-                            extract_keywords(nested_item, html_lines, indent + 1)
+                            extract_keywords(nested_item, html_lines, indent + 1, is_setup, is_teardown)
 
         elif item.type == 'IF/ELSE ROOT':
             # Process IF/ELSE branches without showing the IF/ELSE structure
@@ -28,29 +29,65 @@ def extract_keywords(item, html_lines, indent=0):
                         continue
                     if hasattr(branch, 'body'):
                         for nested_item in branch.body:
-                            extract_keywords(nested_item, html_lines, indent + 1)
+                            extract_keywords(nested_item, html_lines, indent + 1, is_setup, is_teardown)
 
         elif item.type in ['KEYWORD', 'SETUP', 'TEARDOWN']:
             # Handle all keywords, including setup and teardown
-            if hasattr(item, 'kwname'):
-                # Use kwname instead of name
-                html_lines.append(f"<li>{item.kwname.split('  ')[0]}")
-                if hasattr(item, 'body'):
-                    html_lines.append("<ul>")
-                    for nested_item in item.body:
-                        extract_keywords(nested_item, html_lines, indent + 1)
-                    html_lines.append("</ul>")
-                html_lines.append("</li>")
+            keyword_name = getattr(item, 'kwname', '')
+            if not keyword_name or keyword_name.startswith('$'):
+                return
 
-    elif hasattr(item, 'kwname'):
+            if hasattr(item, 'body') and item.body:
+                # If keyword has nested keywords, make it foldable
+                keyword_class = ""
+                if is_setup:
+                    keyword_class = "setup-keyword"
+                elif is_teardown:
+                    keyword_class = "teardown-keyword"
+                html_lines.append(f"<li class='{keyword_class}'>{keyword_name.split('  ')[0]}")
+                html_lines.append("<ul>")
+                for nested_item in item.body:
+                    extract_keywords(nested_item, html_lines, indent + 1, is_setup, is_teardown)
+                html_lines.append("</ul>")
+                html_lines.append("</li>")
+            else:
+                # If no nested keywords, display as simple list item
+                keyword_class = ""
+                if is_setup:
+                    keyword_class = "setup-keyword"
+                elif is_teardown:
+                    keyword_class = "teardown-keyword"
+                html_lines.append(f"<li class='{keyword_class}'>{keyword_name.split('  ')[0]}</li>")
+
+    elif hasattr(item, 'body') and item.body:
         # Handle named items (like user keywords)
-        html_lines.append(f"<li>{item.kwname.split('  ')[0]}")
-        if hasattr(item, 'body'):
-            html_lines.append("<ul>")
-            for nested_item in item.body:
-                extract_keywords(nested_item, html_lines, indent + 1)
-            html_lines.append("</ul>")
+        keyword_name = getattr(item, 'kwname', '')
+        if not keyword_name or keyword_name.startswith('$'):
+            return
+
+        keyword_class = ""
+        if is_setup:
+            keyword_class = "setup-keyword"
+        elif is_teardown:
+            keyword_class = "teardown-keyword"
+        html_lines.append(f"<li class='{keyword_class}'>{keyword_name.split('  ')[0]}")
+        html_lines.append("<ul>")
+        for nested_item in item.body:
+            extract_keywords(nested_item, html_lines, indent + 1, is_setup, is_teardown)
+        html_lines.append("</ul>")
         html_lines.append("</li>")
+    else:
+        # If no nested keywords, display as simple list item
+        keyword_name = getattr(item, 'kwname', '')
+        if not keyword_name or keyword_name.startswith('$'):
+            return
+
+        keyword_class = ""
+        if is_setup:
+            keyword_class = "setup-keyword"
+        elif is_teardown:
+            keyword_class = "teardown-keyword"
+        html_lines.append(f"<li class='{keyword_class}'>{keyword_name.split('  ')[0]}</li>")
 
 def process_suite(suite, html_lines):
     """Process a test suite and its contents."""
@@ -70,7 +107,7 @@ def process_suite(suite, html_lines):
                 <div class="test-case">
                     <div class="test-name">Suite Setup</div>
                     <div class="keywords">""")
-        extract_keywords(suite.setup, html_lines)
+        extract_keywords(suite.setup, html_lines, is_setup=True)
         html_lines.append("""
                     </div>
                 </div>""")
@@ -92,7 +129,7 @@ def process_suite(suite, html_lines):
                         <div class="test-case">
                             <div class="test-name">Test Setup</div>
                             <div class="keywords">""")
-            extract_keywords(test.setup, html_lines)
+            extract_keywords(test.setup, html_lines, is_setup=True)
             html_lines.append("""
                             </div>
                         </div>""")
@@ -108,7 +145,7 @@ def process_suite(suite, html_lines):
                         <div class="test-case">
                             <div class="test-name">Test Teardown</div>
                             <div class="keywords">""")
-            extract_keywords(test.teardown, html_lines)
+            extract_keywords(test.teardown, html_lines, is_teardown=True)
             html_lines.append("""
                             </div>
                         </div>""")
@@ -123,7 +160,7 @@ def process_suite(suite, html_lines):
                 <div class="test-case">
                     <div class="test-name">Suite Teardown</div>
                     <div class="keywords">""")
-        extract_keywords(suite.teardown, html_lines)
+        extract_keywords(suite.teardown, html_lines, is_teardown=True)
         html_lines.append("""
                     </div>
                 </div>""")
