@@ -12,26 +12,30 @@ def extract_keywords(item, html_lines, indent=0):
     if hasattr(item, 'type'):
         if item.type == 'FOR':
             # Process FOR loop body without showing the FOR structure
-            for iteration in item.body:
-                if hasattr(iteration, 'status') and iteration.status == 'NOT RUN':
-                    continue
-                for nested_item in iteration.body:
-                    extract_keywords(nested_item, html_lines, indent + 1)
+            if hasattr(item, 'body'):
+                for iteration in item.body:
+                    if hasattr(iteration, 'status') and iteration.status == 'NOT RUN':
+                        continue
+                    if hasattr(iteration, 'body'):
+                        for nested_item in iteration.body:
+                            extract_keywords(nested_item, html_lines, indent + 1)
 
         elif item.type == 'IF/ELSE ROOT':
             # Process IF/ELSE branches without showing the IF/ELSE structure
-            for branch in item.body:
-                if hasattr(branch, 'status') and branch.status == 'NOT RUN':
-                    continue
-                for nested_item in branch.body:
-                    extract_keywords(nested_item, html_lines, indent + 1)
+            if hasattr(item, 'body'):
+                for branch in item.body:
+                    if hasattr(branch, 'status') and branch.status == 'NOT RUN':
+                        continue
+                    if hasattr(branch, 'body'):
+                        for nested_item in branch.body:
+                            extract_keywords(nested_item, html_lines, indent + 1)
 
         elif item.type in ['KEYWORD', 'SETUP', 'TEARDOWN']:
             # Handle all keywords, including setup and teardown
             if hasattr(item, 'kwname'):
                 # Use kwname instead of name
                 html_lines.append(f"<li>{item.kwname.split('  ')[0]}")
-                if item.body:
+                if hasattr(item, 'body'):
                     html_lines.append("<ul>")
                     for nested_item in item.body:
                         extract_keywords(nested_item, html_lines, indent + 1)
