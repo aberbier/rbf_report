@@ -269,6 +269,177 @@ def count_keyword_occurrences(suite):
 
     return keyword_counts
 
+def create_html_report(suites, total_tests, total_keywords, keyword_stats):
+    html_parts = []
+
+    # Add header and styles
+    html_parts.append("""<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Suite Overview</title>
+    <style>
+        .feedback-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .feedback-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .feedback-section textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .button-group button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button-group button:hover {
+            background-color: #45a049;
+        }
+        .note {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #4CAF50;
+            background-color: #f9f9f9;
+        }
+        .note.implemented {
+            text-decoration: line-through;
+            color: #999;
+        }
+        .note .timestamp {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Suite Overview</h1>
+    <p>Total Test Cases: {total_tests} | Total Executed Keywords: {total_keywords}</p>""".format(
+        total_tests=total_tests,
+        total_keywords=total_keywords
+    ))
+
+    # Add feedback section
+    html_parts.append("""
+    <div class="feedback-section">
+        <h2>Feedback Notes</h2>
+        <textarea id="feedbackText" class="feedback-textarea" placeholder="Enter your feedback note here..."></textarea>
+        <button onclick="saveFeedback()" class="feedback-button">Save Note</button>
+        <div id="feedbackNotes" class="feedback-notes"></div>
+    </div>""")
+
+    # Add keyword statistics
+    html_parts.append("""
+    <div class="keyword-stats">
+        <h2>Statistics per Keyword</h2>
+        <button onclick="toggleKeywordStats()" class="toggle-button">Show/Hide Statistics</button>
+        <div id="keywordStats" style="display: none;">
+            <ul>""")
+
+    for keyword, count in keyword_stats.items():
+        html_parts.append(f"                <li>{keyword}: {count} occurrences</li>")
+
+    html_parts.append("""            </ul>
+        </div>
+    </div>""")
+
+    # Add suites and test cases
+    html_parts.append("""
+    <div class="suites">""")
+
+    for suite in suites:
+        html_parts.append(f"""
+        <div class="suite">
+            <h2>{suite['name']}</h2>
+            <p>{suite['doc']}</p>
+            <div class="test-cases">""")
+
+        for test in suite['tests']:
+            html_parts.append(f"""
+                <div class="test-case">
+                    <h3>{test['name']}</h3>
+                    <p>{test['doc']}</p>
+                    <div class="keywords">""")
+
+            for keyword in test['keywords']:
+                html_parts.append(f"                        {keyword}")
+
+            html_parts.append("""                    </div>
+                </div>""")
+
+        html_parts.append("""            </div>
+        </div>""")
+
+    # Add closing tags and JavaScript
+    html_parts.append("""    </div>
+    <script>
+        function toggleKeywordStats() {
+            const stats = document.getElementById('keywordStats');
+            stats.style.display = stats.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function saveFeedback() {
+            const textarea = document.getElementById('feedbackText');
+            const note = textarea.value.trim();
+            if (!note) return;
+
+            // Get existing notes from localStorage or initialize empty array
+            let notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+
+            // Add new note with timestamp
+            notes.push({
+                text: note,
+                timestamp: new Date().toLocaleString()
+            });
+
+            // Save back to localStorage
+            localStorage.setItem('feedbackNotes', JSON.stringify(notes));
+
+            // Clear textarea
+            textarea.value = '';
+
+            // Update displayed notes
+            displayNotes();
+        }
+
+        function displayNotes() {
+            const notesContainer = document.getElementById('feedbackNotes');
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+
+            notesContainer.innerHTML = notes.map(note => `
+                <div class="feedback-note">
+                    <div class="feedback-text">${note.text}</div>
+                    <div class="feedback-timestamp">${note.timestamp}</div>
+                </div>
+            `).join('');
+        }
+
+        // Display existing notes when page loads
+        displayNotes();
+    </script>
+</body>
+</html>""")
+
+    return ''.join(html_parts)
+
 def main():
     if len(sys.argv) != 2:
         print("Usage: python test_suite_overview.py <output.xml>")
@@ -284,13 +455,9 @@ def main():
     keyword_counts = count_keyword_occurrences(result.suite)
 
     html_lines = []
-    html_lines.append("""<!DOCTYPE html>
-<html>
-<head>
-    <title>Robot Framework Test Suite Overview</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
+
+    # CSS styles
+    styles = """
         :root {
             --primary-color: #007AFF;
             --success-color: #34C759;
@@ -457,7 +624,6 @@ def main():
             border-left: 3px solid var(--border-color);
         }
 
-        /* Remove bullet points from lists */
         ul {
             list-style-type: none;
             padding-left: 2rem;
@@ -475,77 +641,306 @@ def main():
             border-left-color: var(--error-color);
         }
 
-        .chevron {
-            color: var(--text-secondary);
-            transition: transform 0.3s ease;
-            font-size: 1.2rem;
+        .note-actions {
+            margin: 5px 0;
         }
+        .edit-button {
+            padding: 4px 8px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+        .edit-button:hover {
+            background-color: #1976D2;
+        }
+        .note-edit {
+            margin-top: 10px;
+        }
+        .edit-textarea {
+            width: 100%;
+            min-height: 60px;
+            padding: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .edit-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        .edit-buttons button {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .edit-buttons button:first-child {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .edit-buttons button:last-child {
+            background-color: #f44336;
+            color: white;
+        }
+    """
 
-        [aria-expanded="true"] .chevron {
-            transform: rotate(90deg);
-        }
+    # Add header and HTML structure
+    html_lines.append(f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Robot Framework Test Suite Overview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+{styles}
+        .feedback-section {{
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }}
+        .feedback-section h3 {{
+            margin-top: 0;
+            color: #333;
+        }}
+        .feedback-section textarea {{
+            width: 100%;
+            min-height: 100px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }}
+        .button-group {{
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }}
+        .button-group button {{
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }}
+        .button-group button:hover {{
+            background-color: #45a049;
+        }}
+        .note {{
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #4CAF50;
+            background-color: #f9f9f9;
+        }}
+        .note.implemented {{
+            text-decoration: line-through;
+            color: #999;
+        }}
+        .note .timestamp {{
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }}
     </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add click handlers to all suite headers
-            document.querySelectorAll('.suite-header').forEach(function(element) {
-                element.addEventListener('click', function(event) {
-                    event.stopPropagation();
-                    const content = this.nextElementSibling;
-                    const isExpanded = content.classList.contains('visible');
-
-                    // Toggle visibility
-                    content.classList.toggle('visible');
-
-                    // Update aria-expanded attribute
-                    this.setAttribute('aria-expanded', !isExpanded);
-                });
-            });
-
-            // Add click handlers to all test cases
-            document.querySelectorAll('.test-case').forEach(function(element) {
-                element.addEventListener('click', function(event) {
-                    event.stopPropagation();
-                    const keywords = this.querySelector('.keywords');
-                    if (keywords) {
-                        keywords.classList.toggle('visible');
-                    }
-                });
-            });
-
-            // Add click handler for keyword statistics
-            document.querySelector('.keyword-stats').addEventListener('click', function() {
-                const statsList = this.nextElementSibling;
-                statsList.classList.toggle('visible');
-            });
-        });
-    </script>
 </head>
 <body>
     <div class="container">
-        <h1 class="main-title">Test Suite Overview</h1>
+        <h1 class="main-title">Robot Framework Test Suite Overview</h1>
         <div class="statistics">
-            Total Test Cases: <span>%d</span> | Total Executed Keywords: <span>%d</span>
+            Total Test Cases: <span>{total_test_cases}</span> | Total Keywords: <span>{total_keywords}</span>
         </div>
-        <div class="keyword-stats">Statistics per keyword</div>
-        <div class="keyword-stats-list">
-            %s
-        </div>""" % (total_test_cases, total_keywords,
-            "\n".join([f'<div class="keyword-stat-item"><span class="keyword-name">{keyword}</span><span class="keyword-count">{count}</span></div>'
-                      for keyword, count in sorted(keyword_counts.items())])))
 
-    # Process the test suite
+        <!-- Feedback Section -->
+        <div class="feedback-section">
+            <h3>Feedback Notes</h3>
+            <textarea id="feedbackText" placeholder="Enter your feedback note here..."></textarea>
+            <div class="button-group">
+                <button onclick="saveFeedback()">Save Note</button>
+                <button onclick="backupNotes()">Backup Notes</button>
+                <button onclick="restoreNotes()">Restore Notes</button>
+            </div>
+            <div id="savedNotes"></div>
+        </div>
+
+        <div class="keyword-stats" onclick="toggleKeywordStats()">
+            Click to Show/Hide Keyword Statistics
+            <div class="keyword-stats-list" id="keywordStatsList">
+                {
+                    ''.join(
+                        f'<div class="keyword-stat-item"><span class="keyword-name">{keyword}</span><span class="keyword-count">{count}</span></div>'
+                        for keyword, count in sorted(keyword_counts.items())
+                    )
+                }
+            </div>
+        </div>
+        <div class="test-suites">""")
+
+    # Process suites
     process_suite(result.suite, html_lines)
 
+    # Add closing tags and JavaScript
     html_lines.append("""
+        </div>
     </div>
+    <script>
+        function toggleKeywordStats() {
+            const statsList = document.getElementById('keywordStatsList');
+            statsList.classList.toggle('visible');
+        }
+
+        function saveFeedback() {
+            const textarea = document.getElementById('feedbackText');
+            const note = textarea.value.trim();
+            if (!note) return;
+
+            // Get existing notes from localStorage or initialize empty array
+            let notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+
+            // Add new note with timestamp and implementation status
+            notes.push({
+                text: note,
+                timestamp: new Date().toLocaleString(),
+                implemented: false
+            });
+
+            // Save back to localStorage
+            localStorage.setItem('feedbackNotes', JSON.stringify(notes));
+
+            // Clear textarea
+            textarea.value = '';
+
+            // Update displayed notes
+            displayNotes();
+        }
+
+        function toggleImplementation(index) {
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+            notes[index].implemented = !notes[index].implemented;
+            localStorage.setItem('feedbackNotes', JSON.stringify(notes));
+            displayNotes();
+        }
+
+        function editNote(index) {
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+            const note = notes[index];
+            const noteElement = document.querySelector(`.note:nth-child(${index + 1})`);
+
+            // Create edit form
+            const editForm = document.createElement('div');
+            editForm.className = 'note-edit';
+            editForm.innerHTML = `
+                <textarea class="edit-textarea">${note.text}</textarea>
+                <div class="edit-buttons">
+                    <button onclick="saveEdit(${index})">Save</button>
+                    <button onclick="cancelEdit(${index})">Cancel</button>
+                </div>
+            `;
+
+            // Replace note content with edit form
+            noteElement.querySelector('.note-content').style.display = 'none';
+            noteElement.appendChild(editForm);
+        }
+
+        function saveEdit(index) {
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+            const noteElement = document.querySelector(`.note:nth-child(${index + 1})`);
+            const editTextarea = noteElement.querySelector('.edit-textarea');
+
+            // Update note text
+            notes[index].text = editTextarea.value.trim();
+            localStorage.setItem('feedbackNotes', JSON.stringify(notes));
+
+            // Refresh display
+            displayNotes();
+        }
+
+        function cancelEdit(index) {
+            displayNotes();
+        }
+
+        function displayNotes() {
+            const notesContainer = document.getElementById('savedNotes');
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+
+            notesContainer.innerHTML = notes.map((note, index) => `
+                <div class="note ${note.implemented ? 'implemented' : ''}">
+                    <input type="checkbox"
+                           ${note.implemented ? 'checked' : ''}
+                           onchange="toggleImplementation(${index})">
+                    <div class="note-content">
+                        <div class="note-text">${note.text}</div>
+                        <div class="note-actions">
+                            <button onclick="editNote(${index})" class="edit-button">Edit</button>
+                        </div>
+                        <div class="timestamp">${note.timestamp}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function backupNotes() {
+            const notes = JSON.parse(localStorage.getItem('feedbackNotes') || '[]');
+            const blob = new Blob([JSON.stringify(notes, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'feedback_notes_backup.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function restoreNotes() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const notes = JSON.parse(e.target.result);
+                            localStorage.setItem('feedbackNotes', JSON.stringify(notes));
+                            displayNotes();
+                            alert('Notes restored successfully!');
+                        } catch (error) {
+                            alert('Error restoring notes: Invalid JSON file');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        }
+
+        document.querySelectorAll('.test-suite').forEach(suite => {
+            suite.querySelector('.suite-header').addEventListener('click', () => {
+                suite.querySelector('.suite-content').classList.toggle('visible');
+            });
+        });
+
+        document.querySelectorAll('.test-case').forEach(testCase => {
+            testCase.addEventListener('click', () => {
+                testCase.querySelector('.keywords').classList.toggle('visible');
+            });
+        });
+
+        // Display existing notes when page loads
+        displayNotes();
+    </script>
 </body>
 </html>""")
 
-    with open("test_suite_overview.html", "w") as f:
-        f.write("\n".join(html_lines))
-
-    print("HTML file generated: test_suite_overview.html")
+    # Write the HTML file
+    with open('test_suite_overview.html', 'w', encoding='utf-8') as f:
+        f.write('\n'.join(html_lines))
 
 if __name__ == "__main__":
     main()
